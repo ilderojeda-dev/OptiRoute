@@ -4,29 +4,46 @@ def crear_matriz(n):
     return [[0 for _ in range(n)] for _ in range(n)]
 
 
-def llenar_matriz_aleatoria(matriz):
+def llenar_matriz_aleatoria(matriz, peso_min=1, peso_max=20, prob_extra=0.4):
     n = len(matriz)
 
+    orden = list(range(n))
+
+    # Mezcla aleatoriamente el orden de los nodos.
+    random.shuffle(orden)
+
+    # Este primer for crea un ciclo que pasa por todos los nodos
+    for i in range(n):
+        origen = orden[i]
+        # El % n permite que, al llegar al último nodo, vuelva nuevamente al primero.
+        destino = orden[(i + 1) % n]
+        peso = random.randint(peso_min, peso_max)
+        matriz[origen][destino] = peso
+        matriz[destino][origen] = peso
+
+    # algunas conexiones adicionales.
     for i in range(n):
         for j in range(i + 1, n):
-            peso = random.randint(1, 20)
-            matriz[i][j] = peso
-            matriz[j][i] = peso
+            # random.random() genera un número entre 0 y 1.
+            # Si es menor que prob_extra, se agrega la conexión.
+            if matriz[i][j] == 0 and random.random() < prob_extra:
+                peso = random.randint(peso_min, peso_max)
+                matriz[i][j] = peso
+                matriz[j][i] = peso
 
     return matriz
-
 
 def llenar_matriz_manual(matriz):
     n = len(matriz)
-
     for i in range(n):
+        # De esta forma no pedimos dos veces la misma conexión.
         for j in range(i + 1, n):
-            peso = int(input(f"Peso nodo {i+1} - nodo {j+1}: "))
+            peso = int(input(
+                f"Peso nodo {i+1} - nodo {j+1}: "
+            ))
             matriz[i][j] = peso
             matriz[j][i] = peso
-
     return matriz
-
 
 def mostrar_matriz(matriz):
     print("\nMatriz de costos:")
@@ -35,36 +52,52 @@ def mostrar_matriz(matriz):
 
 
 # FUERZA BRUTA MEDIANTE RECURSIVIDAD
-def generar_rutas(ruta, visitados, matriz, soluciones):
-    n = len(matriz)
+def generar_rutas_FB(ruta, restantes, matriz, soluciones):
 
-    if len(ruta) == n:
-        ruta_final = ruta + [0]
-        costo = calcular_costo(ruta_final, matriz)
+    # CASO BASE:
+    # Si ya no quedan nodos por visitar,
+    # intentamos regresar al nodo inicial.
+    if len(restantes) == 0:
 
-        if costo is not None:
-            soluciones.append({
-                "ruta": ruta_final,
-                "costo": costo
-            })
+        inicio = ruta[0]
+        ultimo = ruta[-1]
+
+        # Solo existe un ciclo si el último nodo
+        # tiene conexión con el nodo inicial.
+        if matriz[ultimo][inicio] != 0:
+
+            ruta_final = ruta + [inicio]
+            costo = calcular_costo(ruta_final, matriz)
+
+            # Evita guardar el mismo ciclo recorrido al revés.
+            if ruta[1] < ruta[-1]:
+                soluciones.append({
+                    "ruta": ruta_final,
+                    "costo": costo
+                })
 
         return
 
+    # Nodo donde estamos actualmente.
     actual = ruta[-1]
 
-    for nodo in range(n):
-        if nodo not in visitados and matriz[actual][nodo] != 0:
-            visitados.add(nodo)
+    # Probamos cada nodo que todavía falta visitar.
+    for nodo in restantes:
 
-            generar_rutas(
+        # Solo podemos avanzar si existe una arista.
+        if matriz[actual][nodo] != 0:
+
+            # Creamos una nueva lista sin el nodo elegido.
+            nuevos_restantes = restantes.copy()
+            nuevos_restantes.remove(nodo)
+
+            # Continuamos la búsqueda desde ese nodo.
+            generar_rutas_FB(
                 ruta + [nodo],
-                visitados,
+                nuevos_restantes,
                 matriz,
                 soluciones
             )
-
-            visitados.remove(nodo)
-
 
 def calcular_costo(ruta, matriz):
     costo = 0
@@ -122,7 +155,7 @@ def mostrar_mejores(soluciones):
     print("TOP 5 RUTAS MÁS ÓPTIMAS")
     print("==============================")
 
-    cantidad = min(5, len(soluciones))
+    cantidad = min(10, len(soluciones))
 
     for i in range(cantidad):
         ruta = soluciones[i]["ruta"]
@@ -162,9 +195,9 @@ def main():
 
     print("\nCalculando rutas mediante fuerza bruta...")
 
-    generar_rutas(
+    generar_rutas_FB(
         [0],
-        {0},
+        list(range(1, n)),
         matriz,
         soluciones
     )
