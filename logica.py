@@ -201,7 +201,7 @@ def merge(izquierda, derecha):
     return resultado
 
 
-# FUNCION PRINCIPAL PARA SER UTILIZADA POR LA INTERFAZ
+# FUNCION PRINCIPAL PARA SER UTILIZADA POR LA INTERFAZ_SE ENCARGA DE CONECTA CON EL RESTO
 
 def resolver_tsp(matriz):
    
