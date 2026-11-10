@@ -4,6 +4,7 @@
 # Bibliotecas de la interfaz, comunicación entre hilos y acceso al módulo logica.
 # ------------------------------------------------------------------------
 import math
+import random
 import sys
 import ctypes
 import queue
@@ -17,12 +18,32 @@ import logica
 # 2. CONFIGURACIÓN VISUAL Y UNIDADES
 # Define colores, altura fija del bloque inferior y unidades disponibles.
 # ------------------------------------------------------------------------
-NAVY = '#142c4e'
-BLUE = '#1769aa'
-GREEN = '#16805b'
-RED = '#bf3545'
-VIOLET = '#952bc1'
-BG = '#f1f5fa'
+# Paleta oscura "neón". NAVY se conserva como nombre pero ahora es el color de TEXTO.
+NAVY = '#e6edf7'
+BLUE = '#38bdf8'
+GREEN = '#34d399'
+RED = '#fb7185'
+VIOLET = '#c084fc'
+BG = '#0b1220'
+PANEL = '#111b30'
+PANEL2 = '#1a2744'
+BORDER = '#26365a'
+MUTED = '#8aa0c0'
+CANVAS_BG = '#0a1122'
+GRID = '#17233f'
+DIAG = '#1a2744'
+BLUE_D = '#1e5f8a'
+HEAD1 = '#0b1630'
+HEAD2 = '#2a0f4d'
+
+
+def mezclar(c1, c2, t):
+    """Mezcla dos colores #rrggbb. t=0 -> c1, t=1 -> c2 (simula transparencia)."""
+    a = [int(c1[i:i+2], 16) for i in (1, 3, 5)]
+    b = [int(c2[i:i+2], 16) for i in (1, 3, 5)]
+    return '#%02x%02x%02x' % tuple(round(x+(y-x)*t) for x, y in zip(a, b))
+
+
 ALTURA_BLOQUE_INFERIOR = 280  # Independiente de N y de la longitud de los pesos.
 UNIDADES = {'Distancia': ('km', 'm'), 'Tiempo': ('min', 'h', 's'),
             'Combustible': ('L', 'gal'), 'Costo monetario': ('S/', 'USD', 'EUR'),
@@ -58,6 +79,51 @@ def configurar_nitidez():
 # 4. COMPONENTES REUTILIZABLES: TEXTO
 # Presenta etiquetas, valores y rutas con jerarquía tipográfica y ajuste de ancho.
 # ------------------------------------------------------------------------
+class Cabecera(tk.Canvas):
+    """Encabezado con degradado y partículas luminosas en movimiento."""
+    ALTO = 76
+
+    def __init__(self, parent):
+        super().__init__(parent, height=self.ALTO, bg=HEAD1, highlightthickness=0)
+        self.particulas = []
+        self.bind('<Configure>', self._pintar)
+        self._animar()
+
+    def _pintar(self, event=None):
+        w = max(self.winfo_width(), 400)
+        self.delete('all')
+        paso = 8
+        for x in range(0, w, paso):
+            self.create_rectangle(x, 0, x+paso, self.ALTO, fill=mezclar(HEAD1, HEAD2, x/w), outline='')
+            self.create_rectangle(x, self.ALTO-3, x+paso, self.ALTO, fill=mezclar(BLUE, VIOLET, x/w), outline='')
+        fuente = tkfont.Font(family='Segoe UI', size=26, weight='bold')
+        ancho = fuente.measure('OptiRoute')
+        self.create_text(26, self.ALTO/2-3, text='OptiRoute', anchor='w', fill='white', font=fuente)
+        self.create_rectangle(26+ancho+14, 22, 26+ancho+52, 46, fill=BLUE, outline='')
+        self.create_text(26+ancho+33, 34, text='V2', fill='#04202e', font=('Segoe UI', 11, 'bold'))
+        self.create_text(26+ancho+68, 34, text='Explora  ·  Compara  ·  Optimiza', anchor='w', fill='#9be7ff', font=('Segoe UI', 11))
+        self.create_text(w-24, 34, text='PROBLEMA DEL AGENTE VIAJERO', anchor='e', fill=mezclar(VIOLET, '#ffffff', .4), font=('Segoe UI', 10, 'bold'))
+        self.particulas = []
+        for k in range(18):
+            x, y = random.uniform(0, w), random.uniform(8, self.ALTO-12)
+            v, r = random.uniform(.4, 1.8), random.choice((1.5, 2, 3))
+            pid = self.create_oval(x-r, y-r, x+r, y+r, outline='',
+                                   fill=mezclar(BLUE if k % 2 else VIOLET, HEAD1, .15))
+            self.particulas.append([x, y, v, r, pid])
+
+    def _animar(self):
+        try:
+            w = max(self.winfo_width(), 400)
+            for p in self.particulas:
+                p[0] += p[2]
+                if p[0] > w+6:
+                    p[0] = -6
+                self.coords(p[4], p[0]-p[3], p[1]-p[3], p[0]+p[3], p[1]+p[3])
+        except tk.TclError:
+            return
+        self.after(40, self._animar)
+
+
 class DetailBlock(ttk.Frame):
     """Texto con jerarquía y ajuste de ancho, sin altura fija ni recortes."""
     def __init__(self, parent, color=NAVY):
@@ -162,51 +228,72 @@ class OptiRouteApp:
         root.minsize(960, 620)
         root.state('zoomed')
         root.configure(bg=BG)
-        # Estilos de fuentes, colores, bordes y estados de los controles.
+        # Estilos oscuros: tarjetas, botones con hover, campos, tablas y barras.
         style = ttk.Style(root)
         style.theme_use('clam')
-        style.configure('.', font=('Segoe UI', 10))
+        bold = ('Segoe UI', 10, 'bold')
+        root.option_add('*TCombobox*Listbox.background', PANEL2)
+        root.option_add('*TCombobox*Listbox.foreground', NAVY)
+        root.option_add('*TCombobox*Listbox.selectBackground', BLUE_D)
+        root.option_add('*TCombobox*Listbox.selectForeground', 'white')
+        style.configure('.', font=('Segoe UI', 10), background=BG, foreground=NAVY)
         style.configure('TFrame', background=BG)
         style.configure('TLabel', background=BG, foreground=NAVY)
-        style.configure('TLabelframe', background=BG)
-        style.configure('TLabelframe.Label', background=BG, foreground=BLUE, font=('Segoe UI', 10, 'bold'))
-        style.configure('TButton', padding=(8, 6), background='#e7eef7', foreground=NAVY)
-        style.map('TButton', background=[('pressed', '#cbddef'), ('active', '#dceafa'), ('!active', '#e7eef7')])
-        style.map('TCombobox', fieldbackground=[('readonly', 'white')],
-                  selectbackground=[('!focus', 'white')], selectforeground=[('!focus', NAVY)])
-        # Limpiar la selección de texto al salir; mantener el foco visible para teclado.
-        root.bind_class('TCombobox', '<FocusOut>', lambda e: e.widget.selection_clear(), add='+')
-        style.configure('Accent.TButton', background=BLUE, foreground='white')
-        style.map('Accent.TButton', background=[('pressed', NAVY), ('active', '#2180c5'), ('!active', BLUE)])
-        # Bordes planos, contraste y estados consistentes; se conserva el foco.
-        style.configure('TLabelframe', borderwidth=1, relief='solid', bordercolor='#dce5ef')
-        style.configure('TButton', font=('Segoe UI', 10, 'bold'), borderwidth=1,
-                        relief='flat', bordercolor='#d5e1ee', lightcolor='#e7eef7',
-                        darkcolor='#e7eef7', padding=(10, 8))
-        style.map('TButton', foreground=[('disabled', '#8997a9')],
-                  bordercolor=[('focus', BLUE), ('!focus', '#d5e1ee')])
-        # Encabezados de sección: alineación común y color distinto de las acciones.
-        style.configure('Section.TButton', anchor='w', padding=(14, 11),
-                        font=('Segoe UI', 10, 'bold'), background=NAVY,
-                        foreground='white', bordercolor=NAVY,
-                        lightcolor=NAVY, darkcolor=NAVY)
+        style.configure('TLabelframe', background=BG, borderwidth=1, relief='solid',
+                        bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER)
+        style.configure('TLabelframe.Label', background=BG, foreground=BLUE, font=bold)
+        style.configure('TButton', font=bold, padding=(10, 8), background=PANEL2, foreground=NAVY,
+                        borderwidth=1, relief='flat', bordercolor=BORDER,
+                        lightcolor=PANEL2, darkcolor=PANEL2, focuscolor=PANEL2)
+        style.map('TButton',
+                  background=[('disabled', '#0f182b'), ('pressed', '#2f4778'), ('active', '#243a66')],
+                  lightcolor=[('active', '#243a66'), ('!active', PANEL2)],
+                  darkcolor=[('active', '#243a66'), ('!active', PANEL2)],
+                  foreground=[('disabled', '#4d5f80')],
+                  bordercolor=[('focus', BLUE), ('active', BLUE), ('!focus', BORDER)])
+        for nombre, base, hover, press, fg in [('Accent', BLUE, '#7dd3fc', '#0ea5e9', '#04202e'),
+                                               ('Play', GREEN, '#6ee7b7', '#10b981', '#032b1e')]:
+            style.configure(nombre+'.TButton', background=base, foreground=fg, bordercolor=base,
+                            lightcolor=base, darkcolor=base)
+            style.map(nombre+'.TButton',
+                      background=[('disabled', '#16283f'), ('pressed', press), ('active', hover), ('!active', base)],
+                      lightcolor=[('active', hover), ('!active', base)],
+                      darkcolor=[('active', hover), ('!active', base)],
+                      foreground=[('disabled', '#5f7896'), ('!disabled', fg)],
+                      bordercolor=[('active', 'white'), ('!active', base)])
+        style.configure('Section.TButton', anchor='w', padding=(14, 11), font=bold,
+                        background='#16233f', foreground=BLUE, bordercolor=BORDER,
+                        lightcolor='#16233f', darkcolor='#16233f')
         style.map('Section.TButton',
-                  background=[('pressed', '#0c203b'), ('active', '#23466d'), ('!active', NAVY)],
-                  foreground=[('disabled', '#a9b8cb'), ('!disabled', 'white')],
-                  bordercolor=[('focus', '#20a6c9'), ('!focus', NAVY)])
-        style.configure('TEntry', padding=5, fieldbackground='white', bordercolor='#c9d7e6',
-                        lightcolor='white', darkcolor='white')
-        style.configure('TCombobox', padding=5, arrowsize=14, background='#e7eef7',
-                        bordercolor='#c9d7e6', lightcolor='white', darkcolor='white')
-        style.configure('TCheckbutton', background=BG, foreground=NAVY, padding=4)
+                  background=[('pressed', '#0f1a31'), ('active', '#1f3158'), ('!active', '#16233f')],
+                  lightcolor=[('active', '#1f3158')], darkcolor=[('active', '#1f3158')],
+                  foreground=[('active', 'white'), ('!active', BLUE)],
+                  bordercolor=[('focus', BLUE), ('!focus', BORDER)])
+        style.configure('TEntry', padding=5, fieldbackground=PANEL2, foreground=NAVY, insertcolor=NAVY,
+                        bordercolor=BORDER, lightcolor=PANEL2, darkcolor=PANEL2)
+        style.map('TEntry', bordercolor=[('focus', BLUE)], lightcolor=[('focus', BLUE)])
+        style.configure('TCombobox', padding=5, arrowsize=14, background=PANEL2, fieldbackground=PANEL2,
+                        foreground=NAVY, arrowcolor=BLUE, bordercolor=BORDER,
+                        lightcolor=PANEL2, darkcolor=PANEL2)
+        style.map('TCombobox', fieldbackground=[('readonly', PANEL2)], foreground=[('readonly', NAVY)],
+                  selectbackground=[('!focus', PANEL2)], selectforeground=[('!focus', NAVY)],
+                  bordercolor=[('focus', BLUE)])
+        root.bind_class('TCombobox', '<FocusOut>', lambda e: e.widget.selection_clear(), add='+')
+        style.configure('TCheckbutton', background=BG, foreground=NAVY, padding=4, indicatorbackground=PANEL2)
+        style.map('TCheckbutton', background=[('active', BG)], indicatorcolor=[('selected', BLUE)])
         for orientation in ('Vertical', 'Horizontal'):
-            style.configure(orientation+'.TScrollbar', background='#b5c6da',
-                            troughcolor='#edf2f8', borderwidth=0, arrowsize=13,
-                            lightcolor='#b5c6da', darkcolor='#b5c6da')
-        style.configure('Treeview', rowheight=30, background='white', fieldbackground='white',
+            style.configure(orientation+'.TScrollbar', background='#2b3c61', troughcolor='#0e1627',
+                            borderwidth=0, arrowsize=13, arrowcolor=MUTED,
+                            lightcolor='#2b3c61', darkcolor='#2b3c61')
+        style.configure('Horizontal.TProgressbar', troughcolor='#0e1627', background=BLUE, bordercolor=BORDER,
+                        lightcolor=BLUE, darkcolor=BLUE, thickness=6)
+        style.configure('Horizontal.TScale', background=BLUE, troughcolor='#0e1627', bordercolor=BORDER,
+                        lightcolor=BLUE, darkcolor=BLUE)
+        style.configure('Treeview', rowheight=30, background=PANEL, fieldbackground=PANEL,
                         foreground=NAVY, borderwidth=0)
-        style.configure('Treeview.Heading', font=('Segoe UI',10,'bold'),
-                        background='#e7eef7', foreground=NAVY, relief='flat', padding=7)
+        style.map('Treeview', background=[('selected', BLUE_D)], foreground=[('selected', 'white')])
+        style.configure('Treeview.Heading', font=bold, background=PANEL2, foreground=BLUE,
+                        relief='flat', padding=7)
         # Estado inicial: variables enlazadas a controles y datos de la ejecución.
         self.n = tk.StringVar(value='5')
         self.tipo = tk.StringVar(value='Distancia')
@@ -224,12 +311,24 @@ class OptiRouteApp:
         self.busy = False
         self.revision = 0
         self.vista = 'inicio'
+        # Animación: fotograma, progreso del trazo, reproducción automática y spinner.
+        self.frame = 0
+        self.progreso = 0.0
+        self.vel_prog = 0.22
+        self._ruta_anim = None
+        self.posiciones = {}
+        self.celdas = {}
+        self.reproduciendo = False
+        self._play_job = None
+        self._spin = 0
+        self.nivel = tk.DoubleVar(value=5)
         # La cola transporta resultados del hilo de cálculo al hilo principal de Tk.
         self.cola = queue.Queue()
         self.ventanas_ciclos = []
         self.controles_mutables = []
         self._construir()
         self._nuevo(False)
+        self._tick()
 
     # ------------------------------------------------------------------------
     # 8. CREACIÓN DE CONTROLES AUXILIARES
@@ -269,10 +368,7 @@ class OptiRouteApp:
     # ------------------------------------------------------------------------
     def _construir(self):
         # Encabezado de la aplicación y distribución general de tres columnas.
-        header = tk.Frame(self.root, bg=NAVY, padx=22, pady=13)
-        header.pack(fill='x')
-        tk.Label(header, text='OptiRoute', bg=NAVY, fg='white', font=('Segoe UI', 25, 'bold')).pack(side='left')
-        tk.Label(header, text='  V2  /  Explora · Compara · Optimiza', bg=NAVY, fg='#79d9ef', font=('Segoe UI', 11)).pack(side='left', padx=16)
+        Cabecera(self.root).pack(fill='x')
         body = ttk.Frame(self.root, padding=8)
         body.pack(fill='both', expand=True)
         body.rowconfigure(0, weight=1)
@@ -318,6 +414,10 @@ class OptiRouteApp:
         self.anterior = self._button(p, '← Paso anterior', lambda: self._paso(-1))
         self.siguiente = self._button(p, 'Paso siguiente →', lambda: self._paso(1))
         self.final = self._button(p, 'Ver resultado final', self._final)
+        self.play = self._button(p, '▶ Reproducir', self._toggle_play)
+        self.play.configure(style='Play.TButton')
+        ttk.Label(p, text='Velocidad de reproducción', foreground=MUTED).pack(anchor='w', pady=(6, 0))
+        ttk.Scale(p, from_=1, to=10, variable=self.nivel, orient='horizontal').pack(fill='x', pady=(2, 4))
         ttk.Checkbutton(p, text='Solo la ruta resaltada', variable=self.solo_ruta, command=self._dibujar).pack(anchor='w', pady=6)
         self.city_panel = self._seccion(left.body, '05 · Ciudades')
         self.ciudades_body = ttk.Frame(self.city_panel)
@@ -328,7 +428,7 @@ class OptiRouteApp:
         center.columnconfigure(0, weight=1)
         self.titulo = ttk.Label(center, text='GRAFO PONDERADO', font=('Segoe UI', 12, 'bold'))
         self.titulo.grid(row=0, column=0, sticky='w', pady=8)
-        self.canvas = tk.Canvas(center, bg='white', highlightthickness=0, width=400, height=300)
+        self.canvas = tk.Canvas(center, bg=CANVAS_BG, highlightthickness=0, width=400, height=300)
         self.canvas.grid(row=1, column=0, sticky='nsew')
         self.canvas.bind('<Configure>', lambda e: self._dibujar())
         self.matrix_title = ttk.Label(center, font=('Segoe UI', 11, 'bold'))
@@ -344,7 +444,7 @@ class OptiRouteApp:
         matrix_frame.grid(row=0, column=0, sticky='nsew', padx=(0, 10))
         matrix_frame.rowconfigure(0, weight=1)
         matrix_frame.columnconfigure(0, weight=1)
-        self.matrix_canvas = tk.Canvas(matrix_frame, bg='white', highlightthickness=0, height=200)
+        self.matrix_canvas = tk.Canvas(matrix_frame, bg=PANEL, highlightthickness=0, height=200)
         self.matrix_canvas.grid(row=0, column=0, sticky='nsew')
         bar = ttk.Scrollbar(matrix_frame, orient='horizontal', command=self.matrix_canvas.xview)
         bar.grid(row=1, column=0, sticky='ew')
@@ -359,6 +459,9 @@ class OptiRouteApp:
         p = self._card(right.body, 'Ejecución')
         self.estado = self._label(p)
         self.estado.configure(font=('Segoe UI', 10, 'bold'))
+        self.barra = ttk.Progressbar(p, mode='determinate', maximum=100, value=0,
+                                     style='Horizontal.TProgressbar')
+        self.barra.pack(fill='x', pady=(0, 4))
         self.contador = tk.Text(p, height=3, width=22, wrap='word', bg=BG, fg=NAVY,
                                relief='flat', borderwidth=0, font=('Segoe UI', 10),
                                takefocus=False, cursor='arrow')
@@ -523,12 +626,14 @@ class OptiRouteApp:
 
     def _invalidar(self, mensaje):
         self.revision += 1
+        self._parar_play()
         self._cerrar_listas()
         self.resultado = None
         self.indice_paso = -1
         self.ruta = None
         self.vista = 'inicio'
         self.estado.configure(text=mensaje, foreground=NAVY)
+        self.barra.configure(value=0)
         self.actual.configure(text='Presione Iniciar para evaluar las rutas.', foreground=NAVY)
         self._refrescar()
 
@@ -565,6 +670,9 @@ class OptiRouteApp:
         try:
             revision, (kind, data) = self.cola.get_nowait()
         except queue.Empty:
+            self._spin += 1
+            giro = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[self._spin % 10]
+            self.estado.configure(text=f'{giro} Calculando… La búsqueda recursiva puede tardar con 10 nodos.', foreground=BLUE)
             self.root.after(60, self._recibir)
             return
         self.busy = False
@@ -573,7 +681,7 @@ class OptiRouteApp:
             return
         if kind == 'resultado':
             self.resultado = data
-            self.estado.configure(text='Búsqueda completa. Recorra los intentos o consulte el resultado.', foreground=GREEN)
+            self.estado.configure(text='Cálculo listo. Reproduzca los intentos para ver el progreso de exploración.', foreground=GREEN)
         elif kind == 'faltantes':
             _, faltantes = data
             self.estado.configure(text='No existe un ciclo hamiltoniano.', foreground=RED)
@@ -593,6 +701,7 @@ class OptiRouteApp:
         ready = self.resultado is not None and not self.busy
         self.final.configure(state='normal' if ready else 'disabled')
         self.todos.configure(state='normal' if ready else 'disabled')
+        self.play.configure(state='normal' if ready else 'disabled')
         self.anterior.configure(state='normal' if ready and self.indice_paso >= 0 else 'disabled')
         self.siguiente.configure(state='normal' if ready and self.indice_paso < len(self.resultado['pasos'])-1 else 'disabled')
 
@@ -619,14 +728,17 @@ class OptiRouteApp:
         else:
             self.ruta = None
             self.actual.configure(text='Aún no se ha mostrado ningún intento. Presione Paso siguiente.', foreground=NAVY)
+        self._resaltar_matriz()
         self._dibujar()
 
     # Selecciona la mejor ruta calculada y la resalta con el color de óptimo.
     def _final(self):
         if self.resultado and self.resultado['mejor']:
+            self._parar_play()
             self.vista = 'final'
             self.ruta = self.resultado['mejor']['ruta']
             self.color = VIOLET
+            self._ruta_anim = None
             self._mostrar_actual()
 
     # Permite inspeccionar una solución del Top 5 o de la lista completa.
@@ -634,6 +746,7 @@ class OptiRouteApp:
         self.vista = 'seleccion'
         self.ruta = solucion['ruta']
         self.color = BLUE
+        self._ruta_anim = None
         self._mostrar_actual()
 
     # ------------------------------------------------------------------------
@@ -651,8 +764,10 @@ class OptiRouteApp:
             # Los pasos incluyen ambos sentidos y cierres fallidos, pero no ramas truncadas.
             self._contadores(self.resultado['total_evaluadas'], len(self.resultado['pasos']))
             for i, sol in enumerate(self.resultado['ordenadas'][:5], 1):
-                button = tk.Button(self.top, text=f'{i}. {" → ".join(chr(65+nodo) for nodo in sol["ruta"])}\n{self._costo(sol["costo"])}', command=lambda s=sol: self._seleccionar(s), wraplength=220, justify='left', anchor='w', bg='white', fg=NAVY, relief='flat', padx=7, pady=6, cursor='hand2')
+                button = tk.Button(self.top, text=f'{i}. {" → ".join(chr(65+nodo) for nodo in sol["ruta"])}\n{self._costo(sol["costo"])}', command=lambda s=sol: self._seleccionar(s), wraplength=220, justify='left', anchor='w', bg=PANEL2, fg=NAVY, activebackground=BORDER, activeforeground='white', bd=0, highlightthickness=0, relief='flat', padx=9, pady=7, cursor='hand2', font=('Segoe UI', 10))
                 button.pack(fill='x', pady=3)
+                button.bind('<Enter>', lambda e, b=button: b.configure(bg='#243a66'))
+                button.bind('<Leave>', lambda e, b=button: b.configure(bg=PANEL2))
             best = self.resultado['mejor']
             self.optima.configure(text=(self._ruta_texto(best['ruta']) + '\n\nMínimo: ' + self._costo(best['costo'])) if best else 'Sin solución.')
             self._mostrar_actual()
@@ -660,6 +775,7 @@ class OptiRouteApp:
             self._contadores()
             self.optima.configure(text='Pendiente de búsqueda.')
         self._botones()
+        self._resaltar_matriz()
         self._dibujar()
 
     def _contadores(self, ciclos=None, intentos=None):
@@ -686,6 +802,7 @@ class OptiRouteApp:
             return
         self._matrix_render_key = key
         c.delete('all')
+        self.celdas = {}
         n = len(self.matriz)
         numeric_font = tkfont.Font(family='Consolas', size=10)
         # Celdas cuadradas sin estirar: valores exactos, incluso con pesos largos.
@@ -700,9 +817,10 @@ class OptiRouteApp:
         for i, row in enumerate(self.matriz):
             for j, value in enumerate(row):
                 x, y = x0+j*cell, y0+i*cell
-                c.create_rectangle(x,y,x+cell,y+cell, fill='#edf3fa' if i == j else 'white', outline='')
+                base = DIAG if i == j else PANEL
+                self.celdas[(i, j)] = (c.create_rectangle(x,y,x+cell,y+cell, fill=base, outline=GRID), base)
                 c.create_text(x+cell/2,y+cell/2,text=f'{value:g}',
-                              fill='#94a3b8' if value == 0 else NAVY,
+                              fill='#4a5d80' if value == 0 else NAVY,
                               font=('Consolas', 10), tags=('valor',))
         for x, direction in [(x0-7,1),(x0+size+7,-1)]:
             c.create_line(x+direction*9,y0-5,x,y0-5,x,y0+size+5,
@@ -710,9 +828,9 @@ class OptiRouteApp:
         c.create_text(x0+size+18,y0+size+13,text=f'{n} × {n}',anchor='ne',
                       fill=BLUE,font=('Segoe UI',9,'bold'))
         lx = x0+size+43
-        c.create_line(lx-16,18,lx-16,max(180,size+30),fill='#e2e8f0')
+        c.create_line(lx-16,18,lx-16,max(180,size+30),fill=BORDER)
         c.create_text(lx,18,text='CIUDADES',anchor='nw',fill=BLUE,font=('Segoe UI',10,'bold'))
-        c.create_text(lx,40,text='Orden de filas y columnas',anchor='nw',fill='#64748b',font=('Segoe UI',9))
+        c.create_text(lx,40,text='Orden de filas y columnas',anchor='nw',fill=MUTED,font=('Segoe UI',9))
         for i in range(n):
             y = 68+i*22
             c.create_text(lx,y,text=chr(65+i),anchor='w',fill=BLUE,font=('Segoe UI',10,'bold'))
@@ -738,6 +856,7 @@ class OptiRouteApp:
         window = tk.Toplevel(self.root)
         window.title('Todos los ciclos · OptiRoute V2')
         window.geometry('900x540')
+        window.configure(bg=BG)
         self.ventanas_ciclos.append(window)
         soluciones = self.resultado['ordenadas']
         page = [0]
@@ -790,6 +909,19 @@ class OptiRouteApp:
     # 20. REPRESENTACIÓN GRÁFICA DEL GRAFO
     # Ubica nodos, dibuja aristas y pesos, y resalta la ruta seleccionada.
     # ------------------------------------------------------------------------
+    def _resaltar_matriz(self):
+        """Ilumina en la matriz las celdas de las aristas de la ruta mostrada."""
+        if not self.matriz or not self.celdas:
+            return
+        ruta = self.ruta or []
+        sel = set()
+        for a, b in zip(ruta, ruta[1:]):
+            sel.add((a, b))
+            sel.add((b, a))
+        resalte = mezclar(self.color, PANEL, .62)
+        for clave, (rid, base) in self.celdas.items():
+            self.matrix_canvas.itemconfigure(rid, fill=resalte if clave in sel else base)
+
     def _dibujar(self):
         if self.matriz is None:
             return
@@ -807,51 +939,183 @@ class OptiRouteApp:
             10: [(0,.08),(.40,0),(.92,.09),(.15,.36),(.64,.31),(1,.48),(0,.70),(.45,.65),(.25,1),(.94,.96)]}
         positions = {i: (42+x*(w-84), 38+y*(h-90)) for i, (x,y) in enumerate(layouts[n])}
         self.posiciones = positions
-        # Compara aristas sin orientación para resaltar el ciclo en un grafo no dirigido.
-        selected = {tuple(sorted((a,b))) for a,b in zip(self.ruta or [], (self.ruta or [])[1:])}
+        # Fondo de puntos sutil.
+        for gx in range(16, int(w), 32):
+            for gy in range(16, int(h), 32):
+                canvas.create_rectangle(gx, gy, gx+1.5, gy+1.5, fill=GRID, outline='', tags='bg')
+        ruta = self.ruta or []
+        # Cada ruta nueva reinicia la animación de trazado.
+        if tuple(ruta) != self._ruta_anim:
+            self._ruta_anim = tuple(ruta)
+            self.progreso = 0.0
+        color = self.color
+        en_ruta = set(ruta)
+        selected = {tuple(sorted((a,b))) for a,b in zip(ruta, ruta[1:])}
+        tenue = '#26375a' if ruta else '#3a5078'
         edges = []
         for a in range(n):
             for b in range(a+1, n):
                 highlight = (a,b) in selected
-                if self.ruta and self.solo_ruta.get() and not highlight:
+                if ruta and self.solo_ruta.get() and not highlight:
                     continue
-                if not self.matriz[a][b] and not highlight:
+                existe = self.matriz[a][b]
+                if not existe and not highlight:
                     continue
-                color = self.color if highlight else '#abbacb'
-                x1,y1 = positions[a]
-                x2,y2 = positions[b]
-                canvas.create_line(x1,y1,x2,y2, fill=color, width=3 if highlight else 1.2, dash=(5,4) if not self.matriz[a][b] else ())
-                if self.matriz[a][b]:
-                    edges.append((a,b,color,highlight))
-        # Colocar etiquetas sobre las aristas; probar varios puntos evitando cajas ocupadas.
+                if existe and not highlight:
+                    x1,y1 = positions[a]
+                    x2,y2 = positions[b]
+                    canvas.create_line(x1,y1,x2,y2, fill=tenue, width=1.4, tags='edge')
+                if existe:
+                    edges.append((a,b,highlight))
+        # Etiquetas de peso: se prueban varios puntos evitando cajas ocupadas.
         occupied = [(x-25,y-25,x+25,y+40) for x,y in positions.values()]
-        for a,b,color,highlight in sorted(edges, key=lambda edge: not edge[3]):
+        for a,b,highlight in sorted(edges, key=lambda edge: not edge[2]):
             x1,y1 = positions[a]
             x2,y2 = positions[b]
             text = f'{self.matriz[a][b]:g}'
-            text_id = canvas.create_text(0,0,text=text,font=('Segoe UI',9,'bold' if highlight else 'normal'),fill=color if highlight else NAVY)
+            text_id = canvas.create_text(0,0,text=text,font=('Segoe UI',9,'bold' if highlight else 'normal'),
+                                         fill=color if highlight else '#b4c3dc', tags='wlabel')
             candidates = []
             for t in (.5,.33,.67,.22,.78,.42,.58):
                 x,y = x1+(x2-x1)*t,y1+(y2-y1)*t
                 canvas.coords(text_id,x,y)
                 box = canvas.bbox(text_id)
-                box = (box[0]-3,box[1]-2,box[2]+3,box[3]+2)
+                box = (box[0]-4,box[1]-2,box[2]+4,box[3]+2)
                 overlap = sum(max(0,min(box[2],o[2])-max(box[0],o[0]))*max(0,min(box[3],o[3])-max(box[1],o[1])) for o in occupied)
                 candidates.append((overlap,x,y,box))
             _,x,y,box = min(candidates,key=lambda item:item[0])
             canvas.coords(text_id,x,y)
-            rect = canvas.create_rectangle(*box,fill='white',outline='#e2e8f0')
+            rect = canvas.create_rectangle(*box, fill=CANVAS_BG,
+                                           outline=mezclar(color, CANVAS_BG, .45) if highlight else '#2a3b5e', tags='wlabel')
             canvas.tag_raise(text_id,rect)
             occupied.append(box)
-        # Dibuja los nodos al final para mantener sus letras visibles sobre las aristas.
+        # Nodos al final, con halo y color de ruta.
         for i,(x,y) in positions.items():
-            canvas.create_oval(x-18,y-18,x+18,y+18,fill='#e5f4ff',outline=BLUE,width=2)
-            canvas.create_text(x,y,text=chr(65+i),font=('Segoe UI',11,'bold'),fill=NAVY)
+            c0 = color if i in en_ruta else BLUE
+            canvas.create_oval(x-25,y-25,x+25,y+25, outline=mezclar(c0, CANVAS_BG, .82), width=4, tags='nodes')
+            canvas.create_oval(x-18,y-18,x+18,y+18, fill=mezclar(c0, CANVAS_BG, .78), outline=c0, width=2.5, tags='nodes')
+            canvas.create_text(x,y,text=chr(65+i),font=('Segoe UI',11,'bold'),fill='white', tags='nodes')
+            if ruta and i == ruta[0]:
+                canvas.create_text(x,y-31,text='INICIO',font=('Segoe UI',8,'bold'),fill=color, tags='nodes')
             if self.nombres[i]:
-                label = canvas.create_text(x,y+29,text=self.nombres[i],width=95,font=('Segoe UI',9),fill=NAVY)
-                rect = canvas.create_rectangle(*canvas.bbox(label),fill='white',outline='')
+                label = canvas.create_text(x,y+31,text=self.nombres[i],width=95,font=('Segoe UI',9),fill=NAVY, tags='nodes')
+                rect = canvas.create_rectangle(*canvas.bbox(label),fill=CANVAS_BG,outline='', tags='nodes')
                 canvas.tag_raise(label,rect)
         self.titulo.configure(text=f'GRAFO · {n} vértices · pesos en {self.unidad_aplicada}')
+        self._cuadro()
+
+    # ------------------------------------------------------------------------
+    # 20B. ANIMACIÓN DEL GRAFO
+    # Bucle de ~25 fps: pulsos en nodos, trazo progresivo de la ruta y viajero.
+    # ------------------------------------------------------------------------
+    def _actualizar_progreso_exploracion(self):
+        """Mide los intentos mostrados, incluyendo el trazo del intento actual."""
+        if not self.resultado or self.vista == 'inicio':
+            self.barra.configure(value=0)
+        elif self.vista == 'final':
+            self.barra.configure(value=100)
+        elif self.vista == 'paso':
+            total = len(self.resultado['pasos'])
+            segmentos = max(0, len(self.ruta or []) - 1)
+            fraccion = min(1, self.progreso / segmentos) if segmentos else 0
+            avance = self.indice_paso + fraccion if self.indice_paso >= 0 else 0
+            self.barra.configure(value=100 * avance / total if total else 0)
+        # Inspeccionar un ciclo de la lista no modifica el avance de exploración.
+
+    def _tick(self):
+        try:
+            self._cuadro()
+        except tk.TclError:
+            pass
+        self.root.after(40, self._tick)
+
+    def _cuadro(self):
+        c = self.canvas
+        c.delete('anim')
+        pos = self.posiciones
+        if self.matriz is None or not pos:
+            return
+        self.frame += 1
+        f = self.frame
+        ruta = self.ruta or []
+        color = self.color
+        en_ruta = set(ruta)
+        for i, (x, y) in pos.items():
+            r = 22 + 3*math.sin(f*0.12 + i)
+            col = color if i in en_ruta else BLUE
+            c.create_oval(x-r, y-r, x+r, y+r, width=2, tags=('anim', 'pulso'),
+                          outline=mezclar(col, CANVAS_BG, .55 + .3*math.sin(f*0.12 + i)**2))
+        segs = list(zip(ruta, ruta[1:]))
+        total = len(segs)
+        if total:
+            if self.progreso < total:
+                self.progreso = min(total, self.progreso + self.vel_prog)
+            for k, (a, b) in enumerate(segs):
+                p = min(1, max(0, self.progreso - k))
+                if p <= 0:
+                    break
+                x1, y1 = pos[a]
+                x2, y2 = pos[b]
+                xe, ye = x1+(x2-x1)*p, y1+(y2-y1)*p
+                if self.matriz[a][b]:
+                    c.create_line(x1, y1, xe, ye, fill=mezclar(color, CANVAS_BG, .72), width=11,
+                                  capstyle='round', tags=('anim', 'anim_edge'))
+                    c.create_line(x1, y1, xe, ye, fill=color, width=3.4,
+                                  capstyle='round', tags=('anim', 'anim_edge'))
+                else:
+                    c.create_line(x1, y1, xe, ye, fill=RED, width=2.6, dash=(7, 5),
+                                  dashoffset=-(f % 12), tags=('anim', 'anim_edge'))
+            # Viajero luminoso: sigue el trazo y, al terminar, recorre el ciclo en bucle.
+            t = self.progreso if self.progreso < total else (f*0.045) % total
+            k = min(int(t), total-1)
+            p = t - k
+            a, b = segs[k]
+            x = pos[a][0] + (pos[b][0]-pos[a][0])*p
+            y = pos[a][1] + (pos[b][1]-pos[a][1])*p
+            c.create_oval(x-10, y-10, x+10, y+10, fill=mezclar(color, CANVAS_BG, .6), outline='', tags='anim')
+            c.create_oval(x-5, y-5, x+5, y+5, fill='white', outline=color, width=2, tags='anim')
+        self._actualizar_progreso_exploracion()
+        try:
+            c.tag_lower('pulso', 'nodes')
+            c.tag_lower('anim_edge', 'wlabel' if c.find_withtag('wlabel') else 'nodes')
+        except tk.TclError:
+            pass
+
+    # ------------------------------------------------------------------------
+    # 20C. REPRODUCCIÓN AUTOMÁTICA DE INTENTOS
+    # ------------------------------------------------------------------------
+    def _toggle_play(self):
+        if not self.resultado or self.busy:
+            return
+        if self.reproduciendo:
+            self._parar_play()
+            return
+        self.reproduciendo = True
+        self.play.configure(text='⏸ Pausar')
+        if self.indice_paso >= len(self.resultado['pasos'])-1:
+            self.indice_paso = -1
+        self._tick_play()
+
+    def _parar_play(self):
+        self.reproduciendo = False
+        if self._play_job:
+            self.root.after_cancel(self._play_job)
+            self._play_job = None
+        if hasattr(self, 'play'):
+            self.play.configure(text='▶ Reproducir')
+
+    def _tick_play(self):
+        self._play_job = None
+        if not self.reproduciendo or not self.resultado:
+            return
+        if self.indice_paso >= len(self.resultado['pasos'])-1:
+            self._parar_play()
+            self._final()
+            return
+        delay = int(1150 - self.nivel.get()*105)
+        self.vel_prog = len(self.matriz) / max(4, delay/40*0.75)
+        self._paso(1)
+        self._play_job = self.root.after(delay, self._tick_play)
 
 
 # ------------------------------------------------------------------------
