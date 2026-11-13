@@ -10,7 +10,7 @@ import ctypes
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox, font as tkfont
+from tkinter import ttk, messagebox, simpledialog, font as tkfont
 
 import logica
 
@@ -220,6 +220,54 @@ class SeccionPlegable(ttk.Frame):
 # 7. APLICACIÓN PRINCIPAL
 # Coordina los controles, los datos del grafo, la ejecución y su representación.
 # ------------------------------------------------------------------------
+class DialogoConexion(simpledialog.Dialog):
+    """Devuelve un peso positivo, cero para eliminar o None al cancelar."""
+    def __init__(self, parent, nombres, unidad, peso):
+        self.nombres = nombres
+        self.unidad = unidad
+        self.peso_actual = peso
+        super().__init__(parent, 'Editar conexión' if peso else 'Crear conexión')
+
+    def body(self, master):
+        self.configure(bg=BG)
+        master.configure(bg=BG)
+        ttk.Label(master, text=self.nombres, wraplength=360).pack(padx=12, pady=(8, 12))
+        ttk.Label(master, text=f'Peso en {self.unidad} (mayor que 0):').pack(anchor='w', padx=12)
+        self.entrada = ttk.Entry(master, width=30)
+        self.entrada.pack(fill='x', padx=12, pady=8)
+        self.entrada.insert(0, f'{self.peso_actual:g}' if self.peso_actual else '10')
+        self.entrada.select_range(0, 'end')
+        return self.entrada
+
+    def buttonbox(self):
+        botones = ttk.Frame(self, padding=12)
+        botones.pack(fill='x')
+        ttk.Button(botones, text='Guardar cambios' if self.peso_actual else 'Crear conexión',
+                   command=self.ok).pack(side='left', padx=4)
+        if self.peso_actual:
+            ttk.Button(botones, text='Eliminar conexión', command=self._eliminar).pack(side='left', padx=4)
+        ttk.Button(botones, text='Cancelar', command=self.cancel).pack(side='left', padx=4)
+        self.bind('<Return>', self.ok)
+        self.bind('<Escape>', self.cancel)
+
+    def validate(self):
+        try:
+            self.peso_validado = float(self.entrada.get())
+            if not math.isfinite(self.peso_validado) or self.peso_validado <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror('Peso inválido', 'Ingrese un número positivo y finito.', parent=self)
+            return False
+        return True
+
+    def apply(self):
+        self.result = self.peso_validado
+
+    def _eliminar(self):
+        self.result = 0
+        self.cancel()
+
+
 class OptiRouteApp:
     def __init__(self, root):
         self.root = root
@@ -300,7 +348,6 @@ class OptiRouteApp:
         self.unidad = tk.StringVar(value='km')
         self.minimo = tk.StringVar(value='1')
         self.maximo = tk.StringVar(value='20')
-        self.peso = tk.StringVar(value='10')
         self.solo_ruta = tk.BooleanVar(value=False)
         self.nombres = [''] * 10
         self.matriz = None
@@ -317,6 +364,12 @@ class OptiRouteApp:
         self.vel_prog = 0.22
         self._ruta_anim = None
         self.posiciones = {}
+        self.posiciones_manuales = {}
+        self.nodo_arrastrado = None
+        self.desfase_arrastre = (0, 0)
+        self.inicio_arrastre = (0, 0)
+        self.hubo_arrastre = False
+        self.nodo_seleccionado = None
         self.celdas = {}
         self.reproduciendo = False
         self._play_job = None
@@ -380,7 +433,7 @@ class OptiRouteApp:
         center.grid(row=0, column=1, sticky='nsew')
         right = ScrollPanel(body, 290)
         right.grid(row=0, column=2, sticky='nsew')
-        # Panel izquierdo: creación, unidades, aristas, algoritmo y ciudades.
+        # Panel izquierdo: creación, unidades, algoritmo y ciudades.
         self.secciones = []
         p = self._seccion(left.body, '01 · Crear grafo', True)
         self._entry(p, 'Nodos (5–10)', self.n)
@@ -398,17 +451,7 @@ class OptiRouteApp:
         self._button(p, 'Aplicar unidad', self._aplicar_unidad)
         self.unidad_aplicada = 'km'
         self.tipo_aplicado = 'Distancia'
-        p = self._seccion(left.body, '03 · Editar aristas')
-        self.origen = ttk.Combobox(p, state='readonly', width=20)
-        self.destino = ttk.Combobox(p, state='readonly', width=20)
-        ttk.Label(p, text='Origen / destino').pack(anchor='w')
-        self.origen.pack(fill='x', pady=3)
-        self.destino.pack(fill='x', pady=3)
-        self._entry(p, 'Peso positivo', self.peso)
-        self._button(p, 'Agregar / actualizar', self._agregar, True)
-        self._button(p, 'Eliminar arista', self._eliminar, True)
-        self._button(p, 'Borrar aristas', self._borrar, True)
-        p = self._seccion(left.body, '04 · Algoritmo', True)
+        p = self._seccion(left.body, '03 · Algoritmo', True)
         self.iniciar = self._button(p, 'Iniciar búsqueda', self._iniciar, True)
         self.iniciar.configure(style='Accent.TButton')
         self.anterior = self._button(p, '← Paso anterior', lambda: self._paso(-1))
@@ -419,7 +462,7 @@ class OptiRouteApp:
         ttk.Label(p, text='Velocidad de reproducción', foreground=MUTED).pack(anchor='w', pady=(6, 0))
         ttk.Scale(p, from_=1, to=10, variable=self.nivel, orient='horizontal').pack(fill='x', pady=(2, 4))
         ttk.Checkbutton(p, text='Solo la ruta resaltada', variable=self.solo_ruta, command=self._dibujar).pack(anchor='w', pady=6)
-        self.city_panel = self._seccion(left.body, '05 · Ciudades')
+        self.city_panel = self._seccion(left.body, '04 · Ciudades')
         self.ciudades_body = ttk.Frame(self.city_panel)
         self.ciudades_body.pack(fill='x')
         self._button(self.city_panel, 'Aplicar nombres', self._guardar_nombres)
@@ -431,6 +474,9 @@ class OptiRouteApp:
         self.canvas = tk.Canvas(center, bg=CANVAS_BG, highlightthickness=0, width=400, height=300)
         self.canvas.grid(row=1, column=0, sticky='nsew')
         self.canvas.bind('<Configure>', lambda e: self._dibujar())
+        self.canvas.bind('<ButtonPress-1>', self._iniciar_arrastre)
+        self.canvas.bind('<B1-Motion>', self._arrastrar_nodo)
+        self.canvas.bind('<ButtonRelease-1>', self._terminar_arrastre)
         self.matrix_title = ttk.Label(center, font=('Segoe UI', 11, 'bold'))
         self.matrix_title.grid(row=2, column=0, sticky='w', pady=(12, 5))
         # Bloque inferior de altura fija: matriz y solución en contenedores separados.
@@ -541,6 +587,8 @@ class OptiRouteApp:
             messagebox.showerror('Datos inválidos', str(exc))
             return
         self.matriz = logica.crear_matriz(n)
+        self.posiciones_manuales.clear()
+        self._terminar_arrastre()
         if aleatorio:
             logica.llenar_matriz_aleatoria(self.matriz, minimo, maximo)
         for widget in self.ciudades_body.winfo_children():
@@ -550,15 +598,7 @@ class OptiRouteApp:
             var = tk.StringVar(value=self.nombres[i])
             self.city_vars.append(var)
             self._entry(self.ciudades_body, chr(65+i), var)
-        self._selectores()
         self._invalidar('Grafo aleatorio listo.' if aleatorio else 'Grafo manual: agregue sus aristas.')
-
-    def _selectores(self):
-        values = [f'{chr(65+i)} — {self.nombres[i] or "Sin nombre"}' for i in range(len(self.matriz))]
-        for combo, default in [(self.origen, 0), (self.destino, 1)]:
-            index = combo.current()
-            combo.configure(values=values)
-            combo.current(index if 0 <= index < len(values) else default)
 
     def _guardar_nombres(self):
         names = [v.get().strip() for v in self.city_vars]
@@ -571,48 +611,7 @@ class OptiRouteApp:
             return
         self.nombres[:len(names)] = names
         self._cerrar_listas()
-        self._selectores()
         self._refrescar()
-
-    # ------------------------------------------------------------------------
-    # 13. EDICIÓN MANUAL DE ARISTAS
-    # Valida los vértices y pesos; delega en logica las modificaciones simétricas.
-    # ------------------------------------------------------------------------
-    def _extremos(self):
-        a, b = self.origen.current(), self.destino.current()
-        if a < 0 or b < 0 or a == b:
-            raise ValueError('Seleccione dos vértices distintos.')
-        return a, b
-
-    def _agregar(self):
-        if self.busy:
-            return
-        try:
-            a, b = self._extremos()
-            peso = float(self.peso.get())
-            if not math.isfinite(peso) or peso <= 0:
-                raise ValueError('El peso debe ser positivo y finito.')
-        except ValueError as exc:
-            messagebox.showerror('Arista inválida', str(exc))
-            return
-        logica.agregar_arista(self.matriz, a, b, peso)
-        self._invalidar('Arista actualizada. Ejecute nuevamente la búsqueda.')
-
-    def _eliminar(self):
-        if self.busy:
-            return
-        try:
-            a, b = self._extremos()
-        except ValueError as exc:
-            messagebox.showerror('Arista inválida', str(exc))
-            return
-        logica.agregar_arista(self.matriz, a, b, 0)
-        self._invalidar('Arista eliminada.')
-
-    def _borrar(self):
-        if not self.busy:
-            logica.borrar_aristas(self.matriz)
-            self._invalidar('Se borraron todas las aristas.')
 
     # ------------------------------------------------------------------------
     # 14. REINICIO DEL ESTADO
@@ -625,6 +624,7 @@ class OptiRouteApp:
         self.ventanas_ciclos.clear()
 
     def _invalidar(self, mensaje):
+        self.nodo_seleccionado = None
         self.revision += 1
         self._parar_play()
         self._cerrar_listas()
@@ -922,6 +922,67 @@ class OptiRouteApp:
         for clave, (rid, base) in self.celdas.items():
             self.matrix_canvas.itemconfigure(rid, fill=resalte if clave in sel else base)
 
+    def _iniciar_arrastre(self, event):
+        """Selecciona el nodo bajo el clic, respetando el orden de dibujo."""
+        self._terminar_arrastre()
+        self.inicio_arrastre = (event.x, event.y)
+        self.hubo_arrastre = False
+        for nodo, (x, y) in reversed(list(self.posiciones.items())):
+            if (event.x-x)**2 + (event.y-y)**2 <= 25**2:
+                self.nodo_arrastrado = nodo
+                self.desfase_arrastre = (x-event.x, y-event.y)
+                self.canvas.configure(cursor='fleur')
+                break
+
+    def _arrastrar_nodo(self, event):
+        if self.nodo_arrastrado is None:
+            return
+        x0, y0 = self.inicio_arrastre
+        if not self.hubo_arrastre and (event.x-x0)**2 + (event.y-y0)**2 < 25:
+            return
+        self.hubo_arrastre = True
+        w = max(self.canvas.winfo_width(), 200)
+        h = max(self.canvas.winfo_height(), 180)
+        dx, dy = self.desfase_arrastre
+        # Guarda coordenadas relativas para conservar la ubicación al redimensionar.
+        x = min(w-42, max(42, event.x+dx))
+        y = min(h-52, max(38, event.y+dy))
+        self.posiciones_manuales[self.nodo_arrastrado] = (
+            (x-42)/(w-84), (y-38)/(h-90))
+        self._dibujar()
+
+    def _terminar_arrastre(self, event=None):
+        nodo = self.nodo_arrastrado
+        self.nodo_arrastrado = None
+        self.canvas.configure(cursor='')
+        if event is not None and not self.hubo_arrastre:
+            self._seleccionar_conexion(nodo)
+
+    def _seleccionar_conexion(self, nodo):
+        """Dos clics crean o editan una arista; el arrastre no selecciona."""
+        if self.busy:
+            return
+        if nodo is None or nodo == self.nodo_seleccionado:
+            self.nodo_seleccionado = None
+            self._dibujar()
+            return
+        if self.nodo_seleccionado is None:
+            self.nodo_seleccionado = nodo
+            self._dibujar()
+            return
+        a, b = self.nodo_seleccionado, nodo
+        self._parar_play()
+        actual = self.matriz[a][b]
+        dialogo = DialogoConexion(self.root, f'{self._nombre(a)} — {self._nombre(b)}',
+                                 self.unidad_aplicada, actual)
+        if dialogo.result is None:
+            self.nodo_seleccionado = None
+            self._dibujar()
+            return
+        logica.agregar_arista(self.matriz, a, b, dialogo.result)
+        self._invalidar('Arista eliminada. Ejecute nuevamente la búsqueda.' if dialogo.result == 0
+                        else 'Arista actualizada. Ejecute nuevamente la búsqueda.')
+
     def _dibujar(self):
         if self.matriz is None:
             return
@@ -937,7 +998,10 @@ class OptiRouteApp:
             8: [(0,.06),(.48,0),(1,.12),(.15,.43),(.70,.48),(0,.91),(.48,1),(.98,.88)],
             9: [(0,.07),(.45,0),(1,.12),(.10,.47),(.55,.40),(.97,.56),(0,.93),(.49,1),(.90,.89)],
             10: [(0,.08),(.40,0),(.92,.09),(.15,.36),(.64,.31),(1,.48),(0,.70),(.45,.65),(.25,1),(.94,.96)]}
-        positions = {i: (42+x*(w-84), 38+y*(h-90)) for i, (x,y) in enumerate(layouts[n])}
+        positions = {}
+        for i, posicion in enumerate(layouts[n]):
+            x, y = self.posiciones_manuales.get(i, posicion)
+            positions[i] = (42+x*(w-84), 38+y*(h-90))
         self.posiciones = positions
         # Fondo de puntos sutil.
         for gx in range(16, int(w), 32):
@@ -992,6 +1056,8 @@ class OptiRouteApp:
         # Nodos al final, con halo y color de ruta.
         for i,(x,y) in positions.items():
             c0 = color if i in en_ruta else BLUE
+            if i == self.nodo_seleccionado:
+                c0 = RED
             canvas.create_oval(x-25,y-25,x+25,y+25, outline=mezclar(c0, CANVAS_BG, .82), width=4, tags='nodes')
             canvas.create_oval(x-18,y-18,x+18,y+18, fill=mezclar(c0, CANVAS_BG, .78), outline=c0, width=2.5, tags='nodes')
             canvas.create_text(x,y,text=chr(65+i),font=('Segoe UI',11,'bold'),fill='white', tags='nodes')
@@ -1043,6 +1109,8 @@ class OptiRouteApp:
         for i, (x, y) in pos.items():
             r = 22 + 3*math.sin(f*0.12 + i)
             col = color if i in en_ruta else BLUE
+            if i == self.nodo_seleccionado:
+                col = RED
             c.create_oval(x-r, y-r, x+r, y+r, width=2, tags=('anim', 'pulso'),
                           outline=mezclar(col, CANVAS_BG, .55 + .3*math.sin(f*0.12 + i)**2))
         segs = list(zip(ruta, ruta[1:]))
